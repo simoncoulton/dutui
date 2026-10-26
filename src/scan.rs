@@ -26,7 +26,13 @@ pub struct Node {
 
 impl Node {
     pub fn empty(name: &str) -> Self {
-        Node { name: name.into(), size: 0, is_dir: true, count: 0, children: Vec::new() }
+        Node {
+            name: name.into(),
+            size: 0,
+            is_dir: true,
+            count: 0,
+            children: Vec::new(),
+        }
     }
 }
 
@@ -86,7 +92,11 @@ pub fn start(path: PathBuf, cross: bool, skip: Option<Skip>) -> ScanHandle {
         let threads = std::env::var("DUTUI_THREADS")
             .ok()
             .and_then(|v| v.parse().ok())
-            .unwrap_or_else(|| thread::available_parallelism().map_or(4, |n| n.get()).clamp(4, 8));
+            .unwrap_or_else(|| {
+                thread::available_parallelism()
+                    .map_or(4, |n| n.get())
+                    .clamp(4, 8)
+            });
         let Ok(pool) = rayon::ThreadPoolBuilder::new().num_threads(threads).build() else {
             return;
         };
@@ -121,9 +131,14 @@ struct Ent {
 /// Going through `fstatat` avoids re-resolving the full path for each entry, which
 /// is what `DirEntry::metadata` does on macOS and is the dominant cost of a scan.
 fn list_stat_slow(path: &Path) -> Vec<Ent> {
-    let Ok(c) = CString::new(path.as_os_str().as_bytes()) else { return Vec::new() };
+    let Ok(c) = CString::new(path.as_os_str().as_bytes()) else {
+        return Vec::new();
+    };
     unsafe {
-        let fd = libc::open(c.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC);
+        let fd = libc::open(
+            c.as_ptr(),
+            libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC,
+        );
         if fd < 0 {
             return Vec::new();
         }
@@ -197,7 +212,13 @@ mod bulk {
     }
 
     unsafe extern "C" {
-        fn getattrlistbulk(dirfd: libc::c_int, alist: *mut AttrList, buf: *mut libc::c_void, size: usize, options: u64) -> libc::c_int;
+        fn getattrlistbulk(
+            dirfd: libc::c_int,
+            alist: *mut AttrList,
+            buf: *mut libc::c_void,
+            size: usize,
+            options: u64,
+        ) -> libc::c_int;
     }
 
     const ATTR_BIT_MAP_COUNT: u16 = 5;
@@ -222,14 +243,23 @@ mod bulk {
     /// `None` means bulk listing is unavailable here; the caller falls back.
     pub fn list(path: &Path) -> Option<Vec<Ent>> {
         let c = CString::new(path.as_os_str().as_bytes()).ok()?;
-        let fd = unsafe { libc::open(c.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC) };
+        let fd = unsafe {
+            libc::open(
+                c.as_ptr(),
+                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC,
+            )
+        };
         if fd < 0 {
             return Some(Vec::new()); // unreadable directory: nothing to list
         }
         let mut al = AttrList {
             bitmapcount: ATTR_BIT_MAP_COUNT,
             reserved: 0,
-            commonattr: ATTR_CMN_RETURNED_ATTRS | ATTR_CMN_NAME | ATTR_CMN_DEVID | ATTR_CMN_OBJTYPE | ATTR_CMN_FILEID,
+            commonattr: ATTR_CMN_RETURNED_ATTRS
+                | ATTR_CMN_NAME
+                | ATTR_CMN_DEVID
+                | ATTR_CMN_OBJTYPE
+                | ATTR_CMN_FILEID,
             volattr: 0,
             dirattr: 0,
             fileattr: ATTR_FILE_LINKCOUNT | ATTR_FILE_ALLOCSIZE,
@@ -240,7 +270,15 @@ mod bulk {
         BUF.with(|b| {
             let mut buf = b.borrow_mut();
             loop {
-                let n = unsafe { getattrlistbulk(fd, &mut al, buf.as_mut_ptr().cast(), buf.len(), FSOPT_PACK_INVAL_ATTRS) };
+                let n = unsafe {
+                    getattrlistbulk(
+                        fd,
+                        &mut al,
+                        buf.as_mut_ptr().cast(),
+                        buf.len(),
+                        FSOPT_PACK_INVAL_ATTRS,
+                    )
+                };
                 if n < 0 {
                     // Unsupported on this filesystem: let the caller use the portable path.
                     supported = !out.is_empty();
@@ -262,12 +300,21 @@ mod bulk {
                     let nlink: u32 = rd(p, 48);
                     let alloc: i64 = rd(p, 52);
                     let name = unsafe {
-                        std::slice::from_raw_parts(p.add(24).offset(name_off as isize), (name_len as usize).saturating_sub(1))
+                        std::slice::from_raw_parts(
+                            p.add(24).offset(name_off as isize),
+                            (name_len as usize).saturating_sub(1),
+                        )
                     };
                     let is_dir = objtype == VDIR;
                     out.push(Ent {
                         name: name.to_vec(),
-                        st: Stat { dev: dev as u64, ino, nlink: nlink as u64, size: if is_dir { 0 } else { alloc.max(0) as u64 }, is_dir },
+                        st: Stat {
+                            dev: dev as u64,
+                            ino,
+                            nlink: nlink as u64,
+                            size: if is_dir { 0 } else { alloc.max(0) as u64 },
+                            is_dir,
+                        },
                     });
                     p = unsafe { p.add(len as usize) };
                 }
@@ -288,12 +335,18 @@ fn scan_top(path: &Path, ctx: &Ctx, skip: Option<&Skip>, tx: &mpsc::Sender<Msg>,
     let mut entries = Vec::new();
     let mut todo = Vec::new();
     for e in list_stat(path) {
-        if let Some(s) = skip {
-            if e.name == s.name.as_bytes() {
-                let node = Node { name: lossy(&e.name), size: s.size, is_dir: true, count: s.count, children: Vec::new() };
-                entries.push(Entry { node, live: None });
-                continue;
-            }
+        if let Some(s) = skip
+            && e.name == s.name.as_bytes()
+        {
+            let node = Node {
+                name: lossy(&e.name),
+                size: s.size,
+                is_dir: true,
+                count: s.count,
+                children: Vec::new(),
+            };
+            entries.push(Entry { node, live: None });
+            continue;
         }
         let name = lossy(&e.name);
         if e.st.is_dir {
@@ -301,16 +354,36 @@ fn scan_top(path: &Path, ctx: &Ctx, skip: Option<&Skip>, tx: &mpsc::Sender<Msg>,
                 continue;
             }
             let live = Arc::new(AtomicU64::new(e.st.size));
-            todo.push((entries.len(), path.join(OsStr::from_bytes(&e.name)), e.st.size, live.clone()));
-            let node = Node { name, size: e.st.size, is_dir: true, count: 0, children: Vec::new() };
-            entries.push(Entry { node, live: Some(live) });
+            todo.push((
+                entries.len(),
+                path.join(OsStr::from_bytes(&e.name)),
+                e.st.size,
+                live.clone(),
+            ));
+            let node = Node {
+                name,
+                size: e.st.size,
+                is_dir: true,
+                count: 0,
+                children: Vec::new(),
+            };
+            entries.push(Entry {
+                node,
+                live: Some(live),
+            });
         } else {
             if e.st.nlink > 1 && !ctx.seen.lock().unwrap().insert((e.st.dev, e.st.ino)) {
                 continue;
             }
             ctx.progress.files.fetch_add(1, Relaxed);
             ctx.progress.bytes.fetch_add(e.st.size, Relaxed);
-            let node = Node { name, size: e.st.size, is_dir: false, count: 1, children: Vec::new() };
+            let node = Node {
+                name,
+                size: e.st.size,
+                is_dir: false,
+                count: 1,
+                children: Vec::new(),
+            };
             entries.push(Entry { node, live: None });
         }
     }
@@ -353,7 +426,13 @@ fn read_children(path: &Path, ctx: &Ctx, live: &AtomicU64) -> Vec<Node> {
             live.fetch_add(e.st.size, Relaxed);
             ctx.progress.files.fetch_add(1, Relaxed);
             ctx.progress.bytes.fetch_add(e.st.size, Relaxed);
-            nodes.push(Node { name: lossy(&e.name), size: e.st.size, is_dir: false, count: 1, children: Vec::new() });
+            nodes.push(Node {
+                name: lossy(&e.name),
+                size: e.st.size,
+                is_dir: false,
+                count: 1,
+                children: Vec::new(),
+            });
         }
     }
     let visit = |e: &Ent| -> Option<Node> {
@@ -375,6 +454,90 @@ fn read_children(path: &Path, ctx: &Ctx, live: &AtomicU64) -> Vec<Node> {
     } else {
         nodes.extend(dirs.iter().filter_map(visit));
     }
-    nodes.sort_unstable_by(|a, b| b.size.cmp(&a.size));
+    nodes.sort_unstable_by_key(|n| std::cmp::Reverse(n.size));
     nodes
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    /// Run a scan to completion, returning (top-level entries, finished nodes by id, own size).
+    fn scan(path: &Path) -> Node {
+        let h = start(path.to_path_buf(), false, None);
+        let mut entries = Vec::new();
+        let mut done = Vec::new();
+        loop {
+            match h.rx.recv().expect("scan ended early") {
+                Msg::Partial(e) => entries = e,
+                Msg::Done(i, n) => done.push((i, n)),
+                Msg::Finished(_) => break,
+            }
+        }
+        let mut children: Vec<Node> = entries.into_iter().map(|e| e.node).collect();
+        for (i, n) in done {
+            children[i] = n;
+        }
+        Node {
+            name: "root".into(),
+            size: children.iter().map(|c| c.size).sum(),
+            is_dir: true,
+            count: children.iter().map(|c| c.count).sum(),
+            children,
+        }
+    }
+
+    fn write(path: &Path, bytes: usize) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::File::create(path)
+            .unwrap()
+            .write_all(&vec![1u8; bytes])
+            .unwrap();
+    }
+
+    fn tempdir(tag: &str) -> PathBuf {
+        let p = std::env::temp_dir().join(format!("dutui-test-{tag}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&p);
+        std::fs::create_dir_all(&p).unwrap();
+        p
+    }
+
+    #[test]
+    fn counts_nested_files_and_sizes() {
+        let dir = tempdir("nested");
+        write(&dir.join("a/b/big.bin"), 200_000);
+        write(&dir.join("a/small.bin"), 5_000);
+        write(&dir.join("top.bin"), 50_000);
+        let root = scan(&dir);
+        assert_eq!(root.count, 3);
+        // Allocated size is at least the bytes written.
+        assert!(root.size >= 255_000);
+        let a = root.children.iter().find(|c| &*c.name == "a").unwrap();
+        assert!(a.is_dir && a.count == 2);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn counts_hard_links_once() {
+        let dir = tempdir("links");
+        write(&dir.join("orig.bin"), 100_000);
+        std::fs::hard_link(dir.join("orig.bin"), dir.join("link.bin")).unwrap();
+        let root = scan(&dir);
+        assert_eq!(root.count, 1);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn does_not_follow_symlinks() {
+        let dir = tempdir("symlink");
+        write(&dir.join("real/big.bin"), 300_000);
+        std::os::unix::fs::symlink(dir.join("real"), dir.join("alias")).unwrap();
+        let root = scan(&dir);
+        // The symlink is a leaf, not a second copy of the directory.
+        assert_eq!(root.count, 2);
+        let alias = root.children.iter().find(|c| &*c.name == "alias").unwrap();
+        assert!(!alias.is_dir);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

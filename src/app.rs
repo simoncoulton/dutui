@@ -12,15 +12,21 @@ use std::{
     fs, io,
     path::{Path, PathBuf},
     sync::mpsc::{self, Receiver},
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering::Relaxed},
+    },
     thread,
-    sync::{Arc, atomic::{AtomicU64, Ordering::Relaxed}},
     time::{Duration, Instant},
 };
 
 pub enum JobKind {
     Initial,
     /// Rescan the same directory, restoring the cursor afterwards.
-    Rescan { names: Vec<Box<str>>, sel_name: Option<Box<str>> },
+    Rescan {
+        names: Vec<Box<str>>,
+        sel_name: Option<Box<str>>,
+    },
     /// Scan the parent of the current root and graft the old root back in.
     Up,
 }
@@ -97,7 +103,8 @@ fn trash_item(path: &Path) -> io::Result<()> {
         use trash::macos::{DeleteMethod, TrashContextExtMacos};
         ctx.set_delete_method(DeleteMethod::NsFileManager);
     }
-    ctx.delete(path).map_err(|e| io::Error::other(e.to_string()))
+    ctx.delete(path)
+        .map_err(|e| io::Error::other(e.to_string()))
 }
 
 pub fn cur<'a>(root: &'a Node, path: &[usize]) -> &'a Node {
@@ -156,12 +163,20 @@ impl App {
 
     fn spawn(&mut self, target: PathBuf, kind: JobKind, skip: Option<Skip>) {
         let handle = scan::start(target.clone(), self.cfg.cross_filesystems, skip);
-        self.job = Some(Job { handle, kind, target, began: Instant::now(), slots: Vec::new() });
+        self.job = Some(Job {
+            handle,
+            kind,
+            target,
+            began: Instant::now(),
+            slots: Vec::new(),
+        });
     }
 
     /// Apply scan messages and refresh the live view. Returns true when the view changed.
     pub fn poll_scan(&mut self) -> bool {
-        let Some(mut job) = self.job.take() else { return false };
+        let Some(mut job) = self.job.take() else {
+            return false;
+        };
         let mut finished = None;
         let mut installed = !job.slots.is_empty();
         while let Ok(msg) = job.handle.rx.try_recv() {
@@ -212,7 +227,10 @@ impl App {
             JobKind::Initial => (Vec::new(), None),
             JobKind::Rescan { names, sel_name } => (names.clone(), sel_name.clone()),
             JobKind::Up => {
-                let n = self.root_path.file_name().map(|s| s.to_string_lossy().into_owned());
+                let n = self
+                    .root_path
+                    .file_name()
+                    .map(|s| s.to_string_lossy().into_owned());
                 (Vec::new(), n.map(Box::<str>::from))
             }
         };
@@ -225,7 +243,10 @@ impl App {
         }
         if matches!(job.kind, JobKind::Up) {
             // Graft the already-scanned directory back in place of its placeholder.
-            match sel_name.as_ref().and_then(|n| children.iter().position(|c| c.is_dir && c.name == *n)) {
+            match sel_name
+                .as_ref()
+                .and_then(|n| children.iter().position(|c| c.is_dir && c.name == *n))
+            {
                 Some(pos) => {
                     let mut old = old;
                     old.name = children[pos].name.clone();
@@ -260,8 +281,14 @@ impl App {
         let mut order: Vec<usize> = (0..job.slots.len()).collect();
         order.sort_by(|&a, &b| self.root.children[b].size.cmp(&self.root.children[a].size));
         if order.iter().enumerate().any(|(i, &o)| i != o) {
-            let mut kids: Vec<Option<Node>> = std::mem::take(&mut self.root.children).into_iter().map(Some).collect();
-            let mut slots: Vec<Option<Slot>> = std::mem::take(&mut job.slots).into_iter().map(Some).collect();
+            let mut kids: Vec<Option<Node>> = std::mem::take(&mut self.root.children)
+                .into_iter()
+                .map(Some)
+                .collect();
+            let mut slots: Vec<Option<Slot>> = std::mem::take(&mut job.slots)
+                .into_iter()
+                .map(Some)
+                .collect();
             self.root.children = order.iter().map(|&i| kids[i].take().unwrap()).collect();
             job.slots = order.iter().map(|&i| slots[i].take().unwrap()).collect();
         }
@@ -274,7 +301,9 @@ impl App {
         self.path.clear();
         let mut n = &self.root;
         for name in &names {
-            let Some(i) = n.children.iter().position(|c| c.is_dir && c.name == *name) else { break };
+            let Some(i) = n.children.iter().position(|c| c.is_dir && c.name == *name) else {
+                break;
+            };
             self.path.push(i);
             n = &n.children[i];
         }
@@ -297,7 +326,9 @@ impl App {
         if self.deleting.is_some() {
             return;
         }
-        let Some(c) = self.current().children.get(self.sel) else { return };
+        let Some(c) = self.current().children.get(self.sel) else {
+            return;
+        };
         self.confirm = Some(Confirm {
             path: self.current_path().join(&*c.name),
             name: c.name.clone(),
@@ -326,13 +357,22 @@ impl App {
             };
             let _ = tx.send(res);
         });
-        self.deleting = Some(Deleting { rx, path: c.path, name: c.name, permanent });
+        self.deleting = Some(Deleting {
+            rx,
+            path: c.path,
+            name: c.name,
+            permanent,
+        });
     }
 
     /// Finish a background delete. Returns true when the view changed.
     pub fn poll_delete(&mut self) -> bool {
-        let Some(d) = &self.deleting else { return false };
-        let Ok(res) = d.rx.try_recv() else { return false };
+        let Some(d) = &self.deleting else {
+            return false;
+        };
+        let Ok(res) = d.rx.try_recv() else {
+            return false;
+        };
         let d = self.deleting.take().unwrap();
         match res {
             Ok(()) => {
@@ -344,7 +384,10 @@ impl App {
                 };
             }
             Err(e) => {
-                self.status = format!("{} failed: {e}", if d.permanent { "delete" } else { "trash" });
+                self.status = format!(
+                    "{} failed: {e}",
+                    if d.permanent { "delete" } else { "trash" }
+                );
                 // A partial delete leaves the tree stale.
                 if self.job.is_none() {
                     self.rescan();
@@ -366,11 +409,16 @@ impl App {
             };
             n.size = n.size.saturating_sub(sz);
             n.count = n.count.saturating_sub(cnt);
-            n.children.sort_by(|a, b| b.size.cmp(&a.size));
+            n.children.sort_by_key(|c| std::cmp::Reverse(c.size));
             Some((sz, cnt))
         }
-        let Ok(rel) = abs.strip_prefix(&self.root_path) else { return };
-        let comps: Vec<String> = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
+        let Ok(rel) = abs.strip_prefix(&self.root_path) else {
+            return;
+        };
+        let comps: Vec<String> = rel
+            .components()
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
+            .collect();
         let (names, sel_name) = self.capture();
         rec(&mut self.root, &comps);
         self.restore(names, sel_name);
@@ -378,7 +426,10 @@ impl App {
 
     /// Elapsed time of the running scan, or the duration of the last finished one.
     pub fn scan_elapsed(&self) -> Option<Duration> {
-        self.job.as_ref().map(|j| j.began.elapsed()).or(self.scan_time)
+        self.job
+            .as_ref()
+            .map(|j| j.began.elapsed())
+            .or(self.scan_time)
     }
 
     pub fn scanning(&self) -> bool {
@@ -386,9 +437,12 @@ impl App {
     }
 
     pub fn scan_stats(&self) -> (u64, u64) {
-        self.job
-            .as_ref()
-            .map_or((0, 0), |j| (j.handle.progress.files.load(Relaxed), j.handle.progress.bytes.load(Relaxed)))
+        self.job.as_ref().map_or((0, 0), |j| {
+            (
+                j.handle.progress.files.load(Relaxed),
+                j.handle.progress.bytes.load(Relaxed),
+            )
+        })
     }
 
     fn len(&self) -> usize {
@@ -401,7 +455,9 @@ impl App {
     }
 
     fn enter(&mut self) {
-        let Some(child) = self.current().children.get(self.sel) else { return };
+        let Some(child) = self.current().children.get(self.sel) else {
+            return;
+        };
         if child.is_dir {
             self.descend(&[self.sel]);
         }
@@ -496,7 +552,10 @@ impl App {
     }
 
     fn open_modal(&mut self) {
-        self.modal = Some(Modal { sel: self.theme_idx, orig: self.theme_idx });
+        self.modal = Some(Modal {
+            sel: self.theme_idx,
+            orig: self.theme_idx,
+        });
     }
 
     fn modal_move(&mut self, delta: isize) {
@@ -552,13 +611,17 @@ impl App {
         }
         let page = self.list_area.height.max(2) as isize - 1;
         match (k.code, k.modifiers) {
-            (KeyCode::Char('c'), KeyModifiers::CONTROL) | (KeyCode::Char('q'), _) | (KeyCode::Esc, _) => {
-                self.quit = true
-            }
+            (KeyCode::Char('c'), KeyModifiers::CONTROL)
+            | (KeyCode::Char('q'), _)
+            | (KeyCode::Esc, _) => self.quit = true,
             (KeyCode::Char('j') | KeyCode::Down, _) => self.move_sel(1),
             (KeyCode::Char('k') | KeyCode::Up, _) => self.move_sel(-1),
-            (KeyCode::PageDown, _) | (KeyCode::Char('d'), KeyModifiers::CONTROL) => self.move_sel(page),
-            (KeyCode::PageUp, _) | (KeyCode::Char('u'), KeyModifiers::CONTROL) => self.move_sel(-page),
+            (KeyCode::PageDown, _) | (KeyCode::Char('d'), KeyModifiers::CONTROL) => {
+                self.move_sel(page)
+            }
+            (KeyCode::PageUp, _) | (KeyCode::Char('u'), KeyModifiers::CONTROL) => {
+                self.move_sel(-page)
+            }
             (KeyCode::Char('g') | KeyCode::Home, _) => self.sel = 0,
             (KeyCode::Char('G') | KeyCode::End, _) => self.sel = self.len().saturating_sub(1),
             (KeyCode::Char('l') | KeyCode::Right | KeyCode::Enter, _) => self.enter(),
@@ -570,7 +633,14 @@ impl App {
                 self.cfg.units = if iec { "iec" } else { "si" }.into();
                 crate::ui::set_iec(iec);
                 self.cfg.save();
-                self.status = format!("units: {}", if iec { "KiB / MiB / GiB (1024)" } else { "kB / MB / GB (1000)" });
+                self.status = format!(
+                    "units: {}",
+                    if iec {
+                        "KiB / MiB / GiB (1024)"
+                    } else {
+                        "kB / MB / GB (1000)"
+                    }
+                );
             }
             (KeyCode::Char('r'), _) => self.rescan(),
             (KeyCode::Char('t'), _) => self.open_modal(),
@@ -580,7 +650,11 @@ impl App {
                 self.cfg.save();
                 self.status = format!(
                     "other drives/mounts: {}",
-                    if self.cfg.cross_filesystems { "included" } else { "skipped" }
+                    if self.cfg.cross_filesystems {
+                        "included"
+                    } else {
+                        "skipped"
+                    }
                 );
                 self.rescan();
             }
@@ -622,12 +696,20 @@ impl App {
             MouseEventKind::Down(MouseButton::Left) => {
                 let (x, y) = (m.column, m.row);
                 let la = self.list_area;
-                let list_hit = x >= la.x && x < la.x + la.width && y >= la.y && y < la.y + la.height;
+                let list_hit =
+                    x >= la.x && x < la.x + la.width && y >= la.y && y < la.y + la.height;
                 // Blocks are recorded outer-first, so the last match is the deepest.
                 let deep: Vec<usize> = if list_hit {
-                    Some(self.scroll + (y - la.y) as usize).filter(|&i| i < self.len()).into_iter().collect()
+                    Some(self.scroll + (y - la.y) as usize)
+                        .filter(|&i| i < self.len())
+                        .into_iter()
+                        .collect()
                 } else {
-                    self.map_hits.iter().rfind(|(c, _)| c.contains(x, y)).map(|(_, t)| t.clone()).unwrap_or_default()
+                    self.map_hits
+                        .iter()
+                        .rfind(|(c, _)| c.contains(x, y))
+                        .map(|(_, t)| t.clone())
+                        .unwrap_or_default()
                 };
                 let Some(&i) = deep.first() else { return };
                 let double = matches!(self.last_click, Some((t, j)) if j == i && t.elapsed() < Duration::from_millis(400));

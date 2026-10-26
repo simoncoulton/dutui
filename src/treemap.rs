@@ -56,7 +56,7 @@ pub fn layout(sizes: &[u64], r: Cell) -> Vec<Option<Cell>> {
         let horizontal_strip = w < h; // strip spans the full width, stacked on top
         let thick = if horizontal_strip { sum / w } else { sum / h };
         let mut off = 0.0;
-        for k in i..end {
+        for (k, slot) in out.iter_mut().enumerate().take(end).skip(i) {
             let len = area(k) / thick;
             let (rx, ry, rw, rh) = if horizontal_strip {
                 (x + off, y, len, thick)
@@ -64,7 +64,7 @@ pub fn layout(sizes: &[u64], r: Cell) -> Vec<Option<Cell>> {
                 (x, y + off, thick, len)
             };
             off += len;
-            out[k] = to_cells(rx, ry, rw, rh);
+            *slot = to_cells(rx, ry, rw, rh);
         }
         if horizontal_strip {
             y += thick;
@@ -84,5 +84,84 @@ fn to_cells(x: f64, y: f64, w: f64, h: f64) -> Option<Cell> {
     if x2 <= x1 || y2 <= y1 {
         return None;
     }
-    Some(Cell { x: x1 as u16, y: y1 as u16, w: (x2 - x1) as u16, h: (y2 - y1) as u16 })
+    Some(Cell {
+        x: x1 as u16,
+        y: y1 as u16,
+        w: (x2 - x1) as u16,
+        h: (y2 - y1) as u16,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn area(c: &Cell) -> u32 {
+        c.w as u32 * c.h as u32
+    }
+
+    #[test]
+    fn tiles_the_rect_without_overlap() {
+        let r = Cell {
+            x: 3,
+            y: 2,
+            w: 60,
+            h: 20,
+        };
+        let sizes = [500, 300, 200, 100, 50, 25, 10];
+        let cells = layout(&sizes, r);
+        let placed: Vec<Cell> = cells.iter().flatten().copied().collect();
+        assert_eq!(placed.iter().map(area).sum::<u32>(), area(&r));
+        for (i, a) in placed.iter().enumerate() {
+            assert!(a.x >= r.x && a.x + a.w <= r.x + r.w && a.y >= r.y && a.y + a.h <= r.y + r.h);
+            for b in &placed[i + 1..] {
+                let apart =
+                    a.x + a.w <= b.x || b.x + b.w <= a.x || a.y + a.h <= b.y || b.y + b.h <= a.y;
+                assert!(apart, "{a:?} overlaps {b:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn larger_items_get_larger_cells() {
+        let cells = layout(
+            &[900, 90, 10],
+            Cell {
+                x: 0,
+                y: 0,
+                w: 80,
+                h: 24,
+            },
+        );
+        let a: Vec<u32> = cells.iter().flatten().map(area).collect();
+        assert!(a[0] > a[1] && a[1] >= a[2]);
+    }
+
+    #[test]
+    fn empty_or_zero_sized_input_places_nothing() {
+        assert!(
+            layout(
+                &[],
+                Cell {
+                    x: 0,
+                    y: 0,
+                    w: 10,
+                    h: 10
+                }
+            )
+            .is_empty()
+        );
+        assert!(
+            layout(
+                &[5],
+                Cell {
+                    x: 0,
+                    y: 0,
+                    w: 0,
+                    h: 10
+                }
+            )[0]
+            .is_none()
+        );
+    }
 }

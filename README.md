@@ -22,11 +22,24 @@ filesystem; the right pane is a treemap of what is taking up the space.
 ## Install
 
 ```sh
+# Homebrew (macOS, Linux)
+brew install simoncoulton/dutui/dutui
+
+# Arch Linux (AUR)
+yay -S dutui
+
+# Cargo
+cargo install dutui
+```
+
+Or build from source:
+
+```sh
 cargo build --release
 ./target/release/dutui [PATH]
 ```
 
-`PATH` defaults to the current directory.
+`PATH` defaults to the current directory. Needs Rust 1.89 or newer.
 
 ## Keys
 

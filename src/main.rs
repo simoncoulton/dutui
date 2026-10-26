@@ -18,7 +18,9 @@ fn main() -> io::Result<()> {
     let arg = args.next();
     if arg.as_deref() == Some("--bench") {
         // Scan without the UI and report timing; used to profile the scanner.
-        let path = args.next().map_or_else(|| PathBuf::from("."), PathBuf::from);
+        let path = args
+            .next()
+            .map_or_else(|| PathBuf::from("."), PathBuf::from);
         let t = std::time::Instant::now();
         let h = scan::start(path, false, None);
         while let Ok(m) = h.rx.recv() {
@@ -26,12 +28,21 @@ fn main() -> io::Result<()> {
                 break;
             }
         }
-        let (f, b) = (h.progress.files.load(Relaxed), h.progress.bytes.load(Relaxed));
+        let (f, b) = (
+            h.progress.files.load(Relaxed),
+            h.progress.bytes.load(Relaxed),
+        );
         println!("{:.2?}  {f} files  {b} bytes", t.elapsed());
         return Ok(());
     }
+    if matches!(arg.as_deref(), Some("-V" | "--version")) {
+        println!("dutui {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
     if matches!(arg.as_deref(), Some("-h" | "--help")) {
-        println!("dutui [PATH]\n\nDisk usage treemap. Scans PATH (default: current directory).\nConfig: ~/.config/dutui/dutui.yml");
+        println!(
+            "dutui [PATH]\n\nDisk usage treemap. Scans PATH (default: current directory).\nConfig: ~/.config/dutui/dutui.yml"
+        );
         return Ok(());
     }
     let start = match arg {
@@ -62,7 +73,11 @@ fn run(term: &mut ratatui::DefaultTerminal, app: &mut App) -> io::Result<()> {
             term.draw(|f| ui::draw(f, app))?;
             dirty = false;
         }
-        let wait = if app.scanning() || app.deleting() { Duration::from_millis(60) } else { Duration::from_millis(500) };
+        let wait = if app.scanning() || app.deleting() {
+            Duration::from_millis(60)
+        } else {
+            Duration::from_millis(500)
+        };
         if event::poll(wait)? {
             // Drain everything queued so held keys / fast scrolling don't lag.
             loop {

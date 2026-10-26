@@ -2,6 +2,15 @@
 name = "dutui"
 version = "0.1.0"
 edition = "2024"
+description = "A fast terminal disk-usage explorer with a treemap view, in the spirit of DaisyDisk"
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/simoncoulton/dutui"
+homepage = "https://github.com/simoncoulton/dutui"
+keywords = ["disk-usage", "treemap", "tui", "terminal", "daisydisk"]
+categories = ["command-line-utilities", "filesystem"]
+rust-version = "1.89"
+exclude = [".github/", "packaging/", "example/", "assets/"]
 
 [dependencies]
 libc = "0.2.191"

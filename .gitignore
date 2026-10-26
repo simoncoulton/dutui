@@ -1,2 +1,3 @@
 /target
-example/
+/example
+.DS_Store
