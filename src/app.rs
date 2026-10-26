@@ -1,7 +1,7 @@
 use crate::{
     config::Config,
     scan::{self, Entry, Msg, Node, ScanHandle, Skip},
-    theme::{self, THEMES},
+    theme::{self, Theme},
     treemap::Cell,
 };
 use ratatui::{
@@ -70,6 +70,9 @@ pub struct Modal {
 
 pub struct App {
     pub cfg: Config,
+    pub themes: Vec<Theme>,
+    /// Where theme files live; `None` keeps the built-ins only (tests).
+    themes_dir: Option<PathBuf>,
     pub theme_idx: usize,
     /// Set by `E`; the main loop suspends the UI and opens the config in an editor.
     pub edit_config: bool,
@@ -86,7 +89,8 @@ pub struct App {
     pub confirm: Option<Confirm>,
     deleting: Option<Deleting>,
     pub modal_area: Rect,
-    pub modal_rows: u16,
+    /// First theme shown in the picker (it scrolls when there are more than fit).
+    pub modal_top: usize,
     pub status: String,
     /// How long the last completed scan took.
     pub scan_time: Option<Duration>,
@@ -114,11 +118,18 @@ pub fn cur<'a>(root: &'a Node, path: &[usize]) -> &'a Node {
 }
 
 impl App {
-    pub fn new(cfg: Config, root_path: PathBuf) -> Self {
+    pub fn new(
+        cfg: Config,
+        themes: Vec<Theme>,
+        themes_dir: Option<PathBuf>,
+        root_path: PathBuf,
+    ) -> Self {
         crate::ui::set_iec(cfg.units.eq_ignore_ascii_case("iec"));
-        let theme_idx = theme::index_of(&cfg.theme);
+        let theme_idx = theme::position(&themes, &cfg.theme).unwrap_or(0);
         let mut app = App {
             cfg,
+            themes,
+            themes_dir,
             theme_idx,
             edit_config: false,
             root: Node::empty(""),
@@ -133,7 +144,7 @@ impl App {
             confirm: None,
             deleting: None,
             modal_area: Rect::default(),
-            modal_rows: 1,
+            modal_top: 0,
             status: String::new(),
             scan_time: None,
             started: Instant::now(),
@@ -145,8 +156,8 @@ impl App {
         app
     }
 
-    pub fn theme(&self) -> &'static theme::Theme {
-        &THEMES[self.theme_idx]
+    pub fn theme(&self) -> &theme::Theme {
+        &self.themes[self.theme_idx]
     }
 
     pub fn current(&self) -> &Node {
@@ -548,13 +559,36 @@ impl App {
         }
     }
 
+    /// Persist the settings; a failure is shown rather than swallowed.
+    pub fn save_cfg(&mut self) {
+        if let Err(e) = self.cfg.save() {
+            self.status = e;
+        }
+    }
+
     fn rescan(&mut self) {
         let (names, sel_name) = self.capture();
         let kind = JobKind::Rescan { names, sel_name };
         self.spawn(self.root_path.clone(), kind, None);
     }
 
+    /// Re-read the theme directory so new or edited files show up without a restart.
+    fn reload_themes(&mut self) -> Result<(), String> {
+        let Some(dir) = &self.themes_dir else {
+            return Ok(());
+        };
+        let themes = theme::load_themes(dir)?;
+        let current = self.theme().name.clone();
+        self.themes = themes;
+        self.theme_idx = theme::position(&self.themes, &current).unwrap_or(0);
+        Ok(())
+    }
+
     fn open_modal(&mut self) {
+        if let Err(e) = self.reload_themes() {
+            self.status = e;
+            return;
+        }
         self.modal = Some(Modal {
             sel: self.theme_idx,
             orig: self.theme_idx,
@@ -563,7 +597,7 @@ impl App {
 
     fn modal_move(&mut self, delta: isize) {
         if let Some(m) = &mut self.modal {
-            m.sel = (m.sel as isize + delta).rem_euclid(THEMES.len() as isize) as usize;
+            m.sel = (m.sel as isize + delta).rem_euclid(self.themes.len() as isize) as usize;
             self.theme_idx = m.sel; // live preview
         }
     }
@@ -571,8 +605,8 @@ impl App {
     fn modal_confirm(&mut self) {
         if let Some(m) = self.modal.take() {
             self.theme_idx = m.sel;
-            self.cfg.theme = THEMES[m.sel].id.into();
-            self.cfg.save();
+            self.cfg.theme = self.themes[m.sel].name.clone();
+            self.save_cfg();
         }
     }
 
@@ -584,7 +618,7 @@ impl App {
 
     fn toggle_transparent(&mut self) {
         self.cfg.transparent = !self.cfg.transparent;
-        self.cfg.save();
+        self.save_cfg();
     }
 
     pub fn on_key(&mut self, k: KeyEvent) {
@@ -635,7 +669,7 @@ impl App {
                 let iec = !self.cfg.units.eq_ignore_ascii_case("iec");
                 self.cfg.units = if iec { "iec" } else { "si" }.into();
                 crate::ui::set_iec(iec);
-                self.cfg.save();
+                self.save_cfg();
                 self.status = format!(
                     "units: {}",
                     if iec {
@@ -650,7 +684,7 @@ impl App {
             (KeyCode::Char('b'), _) => self.toggle_transparent(),
             (KeyCode::Char('x'), _) => {
                 self.cfg.cross_filesystems = !self.cfg.cross_filesystems;
-                self.cfg.save();
+                self.save_cfg();
                 self.status = format!(
                     "other drives/mounts: {}",
                     if self.cfg.cross_filesystems {
@@ -667,16 +701,21 @@ impl App {
         }
     }
 
-    /// Adopt a config the user edited by hand.
-    pub fn apply_config(&mut self, cfg: Config) {
+    /// Adopt a config the user edited by hand. Nothing changes if it does not apply.
+    pub fn apply_config(&mut self, cfg: Config) -> Result<(), String> {
+        self.reload_themes()?;
+        let Some(idx) = theme::position(&self.themes, &cfg.theme) else {
+            return Err(unknown_theme(&self.themes, &cfg.theme));
+        };
         let rescan = cfg.cross_filesystems != self.cfg.cross_filesystems;
-        self.theme_idx = theme::index_of(&cfg.theme);
+        self.theme_idx = idx;
         crate::ui::set_iec(cfg.units.eq_ignore_ascii_case("iec"));
         self.cfg = cfg;
         self.status = "config reloaded".into();
         if rescan {
             self.rescan();
         }
+        Ok(())
     }
 
     pub fn on_mouse(&mut self, m: MouseEvent) {
@@ -690,8 +729,8 @@ impl App {
                 MouseEventKind::ScrollUp => self.modal_move(-1),
                 MouseEventKind::Down(MouseButton::Left) => {
                     let inside = m.column > a.x && m.column + 1 < a.x + a.width;
-                    let row = (m.row.wrapping_sub(a.y + 1) / self.modal_rows.max(1)) as usize;
-                    if inside && m.row > a.y && row < THEMES.len() {
+                    let row = m.row.wrapping_sub(a.y + 1) as usize + self.modal_top;
+                    if inside && m.row > a.y && row < self.themes.len() {
                         if let Some(md) = &mut self.modal {
                             md.sel = row;
                         }
@@ -740,4 +779,9 @@ impl App {
             _ => {}
         }
     }
+}
+
+pub fn unknown_theme(themes: &[Theme], name: &str) -> String {
+    let names: Vec<&str> = themes.iter().map(|t| t.name.as_str()).collect();
+    format!("unknown theme '{name}' (available: {})", names.join(", "))
 }

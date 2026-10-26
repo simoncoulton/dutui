@@ -62,20 +62,42 @@ cargo build --release
 
 ## Configuration
 
-Settings are saved to `~/.config/dutui/dutui.yml` whenever you change them:
+Everything lives in `~/.config/dutui/` and is plain YAML.
+
+`dutui.yml` is saved whenever you change a setting:
 
 ```yaml
-theme: tokyo-night        # tokyo-night, catppuccin-latte, catppuccin-frappe,
-                          # catppuccin-macchiato, catppuccin (Mocha), dracula, one-dark
+theme: tokyo-night        # the name of a file in themes/ (without .yml)
 transparent: false        # use the terminal's own background
 cross_filesystems: false  # follow other mounted drives and volumes
 units: si                 # si (kB, MB, GB) or iec (KiB, MiB, GiB)
 ```
+
+Changes made in dutui edit only their own line, so your comments are kept. Press `E` to
+edit the file by hand. An invalid file (unknown key, bad YAML, unknown theme) is reported
+with its path and line instead of being silently replaced.
+
+### Themes
+
+`themes/` holds one `.yml` file per theme. On first run dutui writes a file for each
+built-in theme (default, tokyo-night, the four catppuccin flavours, dracula, one-dark,
+gruvbox-dark, nord, solarized-dark, rose-pine, monokai, github-dark, everforest, kanagawa),
+and the same set torrentui ships. Edit them freely: dutui never overwrites an existing file.
+
+To add a theme, drop a new `.yml` file in the directory. It appears in the picker (`t`) the
+next time it opens, with no restart. The file name is the theme's name:
+
+```yaml
+base: nord                # optional: take any colour you leave out from this theme
+accent: "#ff9e64"         # #rrggbb, an ANSI name (red, darkgray, reset) or 0-255
+```
+
+The colours are `bg fg muted accent border selection_bg success info warning error special`.
 
 ## Notes
 
 - Sizes are disk usage (allocated blocks), not apparent file size, and hard-linked files
   are counted once. Symlinks are never followed.
 - `dutui --bench PATH` scans without the UI and prints the time taken.
-- `example/` holds about 10 GB of zero-filled files for trying the app out. Delete it
-  with `rm -rf example`.
+- `scripts/gen-example.sh` creates `example/`, about 10 GB of zero-filled files for trying
+  the app out. Remove it with `rm -rf example`.

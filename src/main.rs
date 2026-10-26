@@ -55,7 +55,30 @@ fn main() -> io::Result<()> {
         std::process::exit(1);
     }
 
-    let mut app = App::new(config::Config::load(), start);
+    let cfg = match config::Config::load() {
+        Ok(c) => c,
+        Err(e) => {
+            eprintln!("dutui: {e}");
+            std::process::exit(1);
+        }
+    };
+    let themes_dir = config::themes_dir();
+    let themes = match &themes_dir {
+        Some(dir) => theme::load_themes(dir),
+        None => Ok(theme::builtin_themes()),
+    };
+    let themes = match themes {
+        Ok(t) if theme::position(&t, &cfg.theme).is_some() => t,
+        Ok(t) => {
+            eprintln!("dutui: {}", app::unknown_theme(&t, &cfg.theme));
+            std::process::exit(1);
+        }
+        Err(e) => {
+            eprintln!("dutui: {e}");
+            std::process::exit(1);
+        }
+    };
+    let mut app = App::new(cfg, themes, themes_dir, start);
     let mut term = ratatui::init();
     execute!(io::stdout(), EnableMouseCapture)?;
     let res = run(&mut term, &mut app);
@@ -108,7 +131,7 @@ fn edit_config(term: &mut ratatui::DefaultTerminal, app: &mut App) -> io::Result
         return Ok(());
     };
     if !path.exists() {
-        app.cfg.save();
+        app.save_cfg();
     }
     let editor = ["VISUAL", "EDITOR"]
         .iter()
@@ -127,11 +150,15 @@ fn edit_config(term: &mut ratatui::DefaultTerminal, app: &mut App) -> io::Result
     execute!(io::stdout(), EnableMouseCapture)?;
     match status {
         Ok(s) if s.success() => match std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|t| serde_yaml_ng::from_str(&t).ok())
+            .map_err(|e| e.to_string())
+            .and_then(|t| config::Config::parse(&t))
         {
-            Some(cfg) => app.apply_config(cfg),
-            None => app.status = "config is not valid YAML; keeping current settings".into(),
+            Ok(cfg) => {
+                if let Err(e) = app.apply_config(cfg) {
+                    app.status = format!("config not applied: {e}");
+                }
+            }
+            Err(e) => app.status = format!("config not applied: {e}"),
         },
         Ok(_) => app.status = "editor exited with an error; config not reloaded".into(),
         Err(e) => app.status = format!("could not run '{editor}': {e}"),
