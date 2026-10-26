@@ -475,6 +475,7 @@ fn draw_help(f: &mut Frame, th: &Theme, area: Rect) {
         ("u", "toggle units: GB (decimal) / GiB (binary)"),
         ("t", "choose theme (live preview)"),
         ("b", "toggle transparent background"),
+        ("E", "edit the config file in $VISUAL / $EDITOR"),
         (
             "x",
             "include / skip other mounted drives and volumes (rescans)",

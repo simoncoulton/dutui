@@ -78,6 +78,11 @@ fn run(term: &mut ratatui::DefaultTerminal, app: &mut App) -> io::Result<()> {
         } else {
             Duration::from_millis(500)
         };
+        if app.edit_config {
+            app.edit_config = false;
+            edit_config(term, app)?;
+            dirty = true;
+        }
         if event::poll(wait)? {
             // Drain everything queued so held keys / fast scrolling don't lag.
             loop {
@@ -92,6 +97,44 @@ fn run(term: &mut ratatui::DefaultTerminal, app: &mut App) -> io::Result<()> {
                 }
             }
         }
+    }
+    Ok(())
+}
+
+/// Hand the terminal to `$VISUAL` / `$EDITOR` on the config file, then reload it.
+fn edit_config(term: &mut ratatui::DefaultTerminal, app: &mut App) -> io::Result<()> {
+    let Some(path) = config::config_path() else {
+        app.status = "no config path (HOME is unset)".into();
+        return Ok(());
+    };
+    if !path.exists() {
+        app.cfg.save();
+    }
+    let editor = ["VISUAL", "EDITOR"]
+        .iter()
+        .find_map(|k| std::env::var(k).ok().filter(|v| !v.trim().is_empty()))
+        .unwrap_or_else(|| "vi".into());
+    let _ = execute!(io::stdout(), DisableMouseCapture);
+    ratatui::restore();
+    // Through the shell so editors set with arguments (e.g. "code -w") work.
+    let status = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(format!("{editor} \"$1\""))
+        .arg("dutui")
+        .arg(&path)
+        .status();
+    *term = ratatui::init();
+    execute!(io::stdout(), EnableMouseCapture)?;
+    match status {
+        Ok(s) if s.success() => match std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|t| serde_yaml_ng::from_str(&t).ok())
+        {
+            Some(cfg) => app.apply_config(cfg),
+            None => app.status = "config is not valid YAML; keeping current settings".into(),
+        },
+        Ok(_) => app.status = "editor exited with an error; config not reloaded".into(),
+        Err(e) => app.status = format!("could not run '{editor}': {e}"),
     }
     Ok(())
 }

@@ -71,6 +71,8 @@ pub struct Modal {
 pub struct App {
     pub cfg: Config,
     pub theme_idx: usize,
+    /// Set by `E`; the main loop suspends the UI and opens the config in an editor.
+    pub edit_config: bool,
     pub root: Node,
     pub root_path: PathBuf,
     /// Child indices leading from `root` to the directory being shown.
@@ -118,6 +120,7 @@ impl App {
         let mut app = App {
             cfg,
             theme_idx,
+            edit_config: false,
             root: Node::empty(""),
             root_path: root_path.clone(),
             path: Vec::new(),
@@ -658,8 +661,21 @@ impl App {
                 );
                 self.rescan();
             }
+            (KeyCode::Char('E'), _) => self.edit_config = true,
             (KeyCode::Char('?'), _) => self.help = true,
             _ => {}
+        }
+    }
+
+    /// Adopt a config the user edited by hand.
+    pub fn apply_config(&mut self, cfg: Config) {
+        let rescan = cfg.cross_filesystems != self.cfg.cross_filesystems;
+        self.theme_idx = theme::index_of(&cfg.theme);
+        crate::ui::set_iec(cfg.units.eq_ignore_ascii_case("iec"));
+        self.cfg = cfg;
+        self.status = "config reloaded".into();
+        if rescan {
+            self.rescan();
         }
     }
 

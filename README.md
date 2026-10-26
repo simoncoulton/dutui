@@ -54,6 +54,7 @@ cargo build --release
 | `r` | Rescan |
 | `t` | Theme picker, with live preview |
 | `b` | Toggle transparent background |
+| `E` | Edit the config file in `$VISUAL` / `$EDITOR` (reloaded on exit) |
 | `u` | Toggle units: GB (decimal) / GiB (binary) |
 | `x` | Include / skip other mounted drives and volumes (rescans) |
 | `?` | Help |
