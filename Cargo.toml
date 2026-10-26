@@ -1,0 +1,20 @@
+[package]
+name = "dutui"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+libc = "0.2.191"
+ratatui = "0.30.2"
+rayon = "1.12.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_yaml_ng = "0.10.0"
+trash = "5.2.9"
+unicode-width = "0.2.2"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
