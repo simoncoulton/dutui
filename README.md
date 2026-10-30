@@ -19,27 +19,31 @@ filesystem; the right pane is a treemap of what is taking up the space.
 - **Mouse support:** click to select, double-click to open the folder under the
   cursor, right-click to go up, scroll wheel to move.
 
-## Install
+## Installation
+
+### macOS (Homebrew)
+
+Homebrew on macOS (Apple Silicon and Intel) is the supported way to install, with prebuilt binaries:
 
 ```sh
-# Homebrew (macOS, Linux)
-brew install simoncoulton/dutui/dutui
-
-# Arch Linux (AUR)
-yay -S dutui
-
-# Cargo
-cargo install dutui
+brew tap simoncoulton/dutui https://github.com/simoncoulton/dutui
+brew install dutui
 ```
 
-Or build from source:
+### Arch Linux and other distributions
+
+There is no package for Arch or its derivatives yet. Build from source with a recent
+[Rust toolchain](https://rustup.rs) (1.89 or newer):
 
 ```sh
+git clone https://github.com/simoncoulton/dutui
+cd dutui
 cargo build --release
 ./target/release/dutui [PATH]
 ```
 
-`PATH` defaults to the current directory. Needs Rust 1.89 or newer.
+`PATH` defaults to the current directory.
+
 
 ## Keys
 

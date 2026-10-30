@@ -10,7 +10,7 @@ homepage = "https://github.com/simoncoulton/dutui"
 keywords = ["disk-usage", "treemap", "tui", "terminal", "daisydisk"]
 categories = ["command-line-utilities", "filesystem"]
 rust-version = "1.89"
-exclude = [".github/", "packaging/", "example/", "assets/"]
+exclude = [".github/", "packaging/", "example/", "assets/", "Formula/", "scripts/"]
 
 [dependencies]
 libc = "0.2.191"
