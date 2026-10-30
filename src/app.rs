@@ -102,13 +102,15 @@ pub struct App {
 }
 
 fn trash_item(path: &Path) -> io::Result<()> {
-    let mut ctx = trash::TrashContext::default();
+    let ctx = trash::TrashContext::default();
     #[cfg(target_os = "macos")]
-    {
+    let ctx = {
         // NSFileManager is much faster than scripting Finder and needs no permission prompt.
         use trash::macos::{DeleteMethod, TrashContextExtMacos};
+        let mut ctx = ctx;
         ctx.set_delete_method(DeleteMethod::NsFileManager);
-    }
+        ctx
+    };
     ctx.delete(path)
         .map_err(|e| io::Error::other(e.to_string()))
 }
